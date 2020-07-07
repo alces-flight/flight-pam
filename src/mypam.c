@@ -6,6 +6,12 @@
 #include <security/pam_modules.h>
 #include <curl/curl.h>
 
+#ifdef DEBUG
+#define PAM_DEBUG(fmt...) fprintf(stderr, "DEBUG: " fmt);
+#else
+#define PAM_DEBUG(fmt...)
+#endif
+
 /* Expected hooks that are not supported. */
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
 	return PAM_AUTH_ERR; /* Service not supported */
@@ -73,13 +79,11 @@ typedef struct {
 
 
 static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword, const char* pCaFile) {
-	printf("Initiating authentication request\n");
-
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
 	if (!pCurl) {
-		fprintf(stderr, "%s\n", "Error initialising curl");
+		PAM_DEBUG("Error initialising curl\n");
 		return PAM_AUTH_ERR;
 	}
 
@@ -90,9 +94,6 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	pCredentials = malloc(len);
 	sprintf(pCredentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}", pUsername, pPassword);
 
-
-	printf("pCredentials: %s\n", pCredentials);
-
 	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
 	curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeFn);
 	curl_easy_setopt(pCurl, CURLOPT_HEADER, 1L);
@@ -101,13 +102,14 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_easy_setopt(pCurl, CURLOPT_FAILONERROR, 0);
 	// we don't want to leave our user waiting at the login prompt forever
 	curl_easy_setopt(pCurl, CURLOPT_TIMEOUT, 1);
+#ifdef DEBUG
 	curl_easy_setopt(pCurl, CURLOPT_VERBOSE, 1L);
+#endif
 
 	struct curl_slist *pHeaders = NULL;
 	pHeaders = curl_slist_append(pHeaders, "Accept: application/json");
 	pHeaders = curl_slist_append(pHeaders, "Content-Type: application/json");
 	curl_easy_setopt(pCurl, CURLOPT_HTTPHEADER, pHeaders);
-
 
 	// SSL needs 16k of random stuff. We'll give it some space in RAM.
 /*
@@ -117,27 +119,24 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_easy_setopt(pCurl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
 */
 
-	// synchronous, but we don't really care
 	curlResponse = curl_easy_perform(pCurl);
-
 	curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &httpResponse->responseCode);
 	HttpError *error = &httpResponse->err;
 	error->error = (curlResponse != CURLE_OK);
 	error->msg = curl_easy_strerror(curlResponse);
 
-
 	if (httpResponse->err.error) {
 		authStatus = PAM_AUTH_ERR;
-		fprintf(stderr, "%s\n", httpResponse->err.msg);
+		PAM_DEBUG("%s\n", httpResponse->err.msg);
 	} else {
-		fprintf(stderr, "Response status: %ld\n", httpResponse->responseCode);
+		PAM_DEBUG("Response status: %ld\n", httpResponse->responseCode);
 		if (httpResponse->responseCode == 200) {
 			authStatus = PAM_SUCCESS;
 		} else if (httpResponse->responseCode == 401) {
 			authStatus = PAM_PERM_DENIED;
 		} else {
 			authStatus = PAM_AUTH_ERR;
-			fprintf(stderr, "%s\n", "Bad HTTP response code");
+			PAM_DEBUG("%s\n", "Bad HTTP response code");
 		}
 	}
 
@@ -147,7 +146,7 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_slist_free_all(pHeaders);
 	free(httpResponse);
 
-	fprintf(stderr, "Auth status: %d\n", authStatus);
+	PAM_DEBUG("Auth status: %d\n", authStatus);
 
 	return authStatus;
 }
@@ -157,7 +156,7 @@ static int get_user_name(pam_handle_t *pamh, const char** userName) {
 	int retval = pam_get_user(pamh, userName, NULL);
 	if (retval != PAM_SUCCESS || userName == NULL || *userName == NULL) {
 		status = PAM_AUTHINFO_UNAVAIL;
-		fprintf(stderr, "User name lookup failed\n");
+		PAM_DEBUG("User name lookup failed\n");
 	} else {
 		status = PAM_SUCCESS;
 	}
@@ -185,8 +184,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	msg.msg_style = PAM_PROMPT_ECHO_OFF;
 	msg.msg = "Flight Center password: ";
 
-	printf("I got called\n");
-
 	int statusCode = get_user_name(pamh, &pUsername);
 	if (statusCode != PAM_SUCCESS) {
 		return statusCode;
@@ -199,7 +196,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	pCaFile = getArg("cafile", argc, argv);
 	if (pam_get_item(pamh, PAM_CONV, (const void**)&pItem) != PAM_SUCCESS || !pItem) {
-		fprintf(stderr, "Couldn't get pam_conv\n");
+		PAM_DEBUG("Couldn't get pam_conv\n");
 		return PAM_AUTH_ERR;
 	}
 
