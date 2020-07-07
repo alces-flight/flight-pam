@@ -186,6 +186,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	pUrl = getArg("url", argc, argv);
 	if (!pUrl) {
+		PAM_DEBUG("URL argument not given\n");
 		return PAM_AUTH_ERR;
 	}
 
