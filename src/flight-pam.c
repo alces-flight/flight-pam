@@ -168,12 +168,10 @@ PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const ch
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, const char **argv) {
-	int ret = 0;
-
+	int ret = PAM_AUTH_ERR;
 	const char* pUsername = NULL;
 	const char* pUrl = NULL;
 	const char* pCaFile = NULL;
-
 	struct pam_message msg;
 	struct pam_conv* pItem;
 	struct pam_response* pResp;
@@ -182,9 +180,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	msg.msg_style = PAM_PROMPT_ECHO_OFF;
 	msg.msg = "Flight Center password: ";
 
-	int statusCode = get_user_name(pamh, &pUsername);
-	if (statusCode != PAM_SUCCESS) {
-		return statusCode;
+	ret = get_user_name(pamh, &pUsername);
+	if (ret != PAM_SUCCESS) {
+		return ret;
 	}
 
 	pUrl = getArg("url", argc, argv);
@@ -200,11 +198,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
 
-	ret = PAM_SUCCESS;
-
-	if (authenticate_user(pUrl, pUsername, pResp[0].resp, pCaFile) != 0) {
-		ret = PAM_AUTH_ERR;
-	}
+	ret = authenticate_user(pUrl, pUsername, pResp[0].resp, pCaFile);
 
 	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
 	free(pResp);
