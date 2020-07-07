@@ -1,24 +1,61 @@
-Intro
-=====
+# Flight PAM
 
-This module is heavily inspired by the pam-http module by Kragen Sitaker. I rewrote it largely because I wanted to MIT license it (instead of GPL) and because there was some profanity in the source.  Also, the version I modeled this off of didn't even compile because it used an old version of libcurl.
+PAM module using the Alces Flight Platform for authentication.
 
-This works with libcurl v. 7.21.3 (the one in Ubuntu's repositories).
+## Overview
 
-To build, just type `make`. It will create `mypam.so` and a `test` executable.
+Flight PAM is a PAM module which uses the Alces Flight Platform for
+authentication, allowing a user to use their Alces Flight Platform password to
+authenticate their Linux account.
 
-Simple Usage
-------------
+## Installation
 
-The .so file should be put in `/lib/security` and the PAM config files will need to be edited accordingly.
+### From source
 
-The config files are located in `/etc/pam.d/` and the one I changed was `/etc/pam.d/common-auth`. This is NOT the best place to put it, as sudo uses this file and you could get unexpected results (like an HTTP user could gain root access; cool huh?).
+Flight PAM works with libcurl v 7.29.0.
 
-Put something like this in one of the config files (change the URL to whatever you like):
+The following will install from source using `git`:
 
-	auth sufficient mypam.so url=https://localhost:2000
-	account sufficient mypam.so
+```
+git clone https://github.com/alces-flight/flight-pam.git
+cd flight-pam
+make
+sudo make install
+```
 
-Sufficient basically means that if this authentication method succeeds, the user is given access.
+### Installing with Flight Runway
 
-To test, run the test program with a single argument, the username. I have provided a sample HTTPS server (you'll need your own certificate) that will accept all usernames and passwords. This module does not check the validity of certificates, so a custom one will do.
+TBC
+
+## Configuration
+
+The PAM configuration files located in `/etc/pam.d/` need to be edited to
+enable Flight PAM.  The exact files and configuration vary from distro to
+distro.  Some examples are shown below.
+
+### Use Flight PAM for SSH access on Centos 7
+
+Create the file `/etc/pam.d/flight` containing the following:
+
+```
+#%PAM-1.0
+auth sufficient flight-pam.so url=https://accounts.alces-flight.com/sign-in
+```
+
+Edit the file `/etc/pam.d/sshd` and add the line
+
+```
+auth include flight
+```
+
+Edit the file `/etc/ssh/sshd_config` and ensure that `PasswordAuthentication`,
+`ChallengeResponseAuthentication` and `UsePAM` are all set to `yes`.
+
+Finally, restart `sshd`, `sudo systemctl restart sshd`.
+
+
+## Prior work
+
+This module is based on code taken from https://github.com/beatgammit/pam-http
+and https://github.com/1nfiniteloop/pam-http both licensed under the MIT
+license.
