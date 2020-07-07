@@ -176,9 +176,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	struct pam_response* pResp;
 	const struct pam_message* pMsg = &msg;
 
-	msg.msg_style = PAM_PROMPT_ECHO_OFF;
-	msg.msg = "Flight Center password: ";
-
 	ret = get_user_name(pamh, &pUsername);
 	if (ret != PAM_SUCCESS) {
 		return ret;
@@ -195,6 +192,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		return PAM_AUTH_ERR;
 	}
 
+	msg.msg_style = PAM_PROMPT_ECHO_OFF;
+	msg.msg = "Flight Center password: ";
 	pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
 
 	ret = authenticate_user(pUrl, pUsername, pResp[0].resp);
