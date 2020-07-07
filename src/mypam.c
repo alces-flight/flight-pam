@@ -1,7 +1,7 @@
-// standard stuff
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include <security/pam_modules.h>
 #include <curl/curl.h>
@@ -57,15 +57,33 @@ static int writeFn(void* buf, size_t len, size_t size, void* userdata) {
 	return len * size;
 }
 
+
+/**
+ * HTTP Response returned from a HTTP request.
+ */
+typedef struct {
+	bool error;
+	const char* msg;
+} HttpError;
+
+typedef struct {
+	long responseCode;
+	HttpError err;
+} HttpResponse;
+
+
 static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword, const char* pCaFile) {
 	printf("Initiating authentication request\n");
 
 	CURL* pCurl = curl_easy_init();
-	int res = -1;
+	int curlResponse = -1;
+	int authStatus = PAM_AUTH_ERR;
 	if (!pCurl) {
-		return res;
+		fprintf(stderr, "%s\n", "Error initialising curl");
+		return PAM_AUTH_ERR;
 	}
 
+	HttpResponse* httpResponse = malloc(sizeof(HttpResponse));
 	char* pCredentials;
 	int len = strlen(pUsername) + strlen(pPassword) + 42;
 
@@ -80,7 +98,7 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_easy_setopt(pCurl, CURLOPT_HEADER, 1L);
 	curl_easy_setopt(pCurl, CURLOPT_POSTFIELDS, pCredentials);
 	curl_easy_setopt(pCurl, CURLOPT_NOPROGRESS, 1); // we don't care about progress
-	curl_easy_setopt(pCurl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(pCurl, CURLOPT_FAILONERROR, 0);
 	// we don't want to leave our user waiting at the login prompt forever
 	curl_easy_setopt(pCurl, CURLOPT_TIMEOUT, 1);
 	curl_easy_setopt(pCurl, CURLOPT_VERBOSE, 1L);
@@ -100,20 +118,38 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 */
 
 	// synchronous, but we don't really care
-	res = curl_easy_perform(pCurl);
+	curlResponse = curl_easy_perform(pCurl);
 
-	if(res != CURLE_OK) {
-		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+	curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &httpResponse->responseCode);
+	HttpError *error = &httpResponse->err;
+	error->error = (curlResponse != CURLE_OK);
+	error->msg = curl_easy_strerror(curlResponse);
+
+
+	if (httpResponse->err.error) {
+		authStatus = PAM_AUTH_ERR;
+		fprintf(stderr, "%s\n", httpResponse->err.msg);
+	} else {
+		fprintf(stderr, "Response status: %ld\n", httpResponse->responseCode);
+		if (httpResponse->responseCode == 200) {
+			authStatus = PAM_SUCCESS;
+		} else if (httpResponse->responseCode == 401) {
+			authStatus = PAM_PERM_DENIED;
+		} else {
+			authStatus = PAM_AUTH_ERR;
+			fprintf(stderr, "%s\n", "Bad HTTP response code");
+		}
 	}
 
 	memset(pCredentials, '\0', len);
 	free(pCredentials);
 	curl_easy_cleanup(pCurl);
 	curl_slist_free_all(pHeaders);
+	free(httpResponse);
 
-	printf("Response status: %d\n", res);
+	fprintf(stderr, "Auth status: %d\n", authStatus);
 
-	return res;
+	return authStatus;
 }
 
 static int get_user_name(pam_handle_t *pamh, const char** userName) {
