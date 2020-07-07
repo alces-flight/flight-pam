@@ -3,20 +3,24 @@
 #include <string.h>
 #include <stdio.h>
 
-// pam stuff
 #include <security/pam_modules.h>
-
-// libcurl
 #include <curl/curl.h>
 
-/* expected hook */
-PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const char **argv ) {
-	return PAM_SUCCESS;
+/* Expected hooks that are not supported. */
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+	return PAM_AUTH_ERR; /* Service not supported */
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-	printf("Acct mgmt\n");
-	return PAM_SUCCESS;
+PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+	return PAM_AUTHTOK_ERR; /* Service not supported */
+}
+
+PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+	return PAM_SESSION_ERR; /* Service not supported */
+}
+
+PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+	return PAM_SESSION_ERR; /* Service not supported */
 }
 
 /*
@@ -96,7 +100,12 @@ static int getUrl(const char* pUrl, const char* pUsername, const char* pPassword
 	return res;
 }
 
-/* expected hook, this is where custom stuff happens */
+/* Expected hooks that are supported. */
+
+PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const char **argv ) {
+	return PAM_SUCCESS;
+}
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, const char **argv) {
 	int ret = 0;
 
