@@ -112,12 +112,10 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_easy_setopt(pCurl, CURLOPT_HTTPHEADER, pHeaders);
 
 	// SSL needs 16k of random stuff. We'll give it some space in RAM.
-/*
 	curl_easy_setopt(pCurl, CURLOPT_RANDOM_FILE, "/dev/urandom");
 	curl_easy_setopt(pCurl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(pCurl, CURLOPT_SSL_VERIFYHOST, 2);
 	curl_easy_setopt(pCurl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
-*/
 
 	curlResponse = curl_easy_perform(pCurl);
 	curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &httpResponse->responseCode);
