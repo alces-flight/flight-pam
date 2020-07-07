@@ -78,7 +78,7 @@ typedef struct {
 } HttpResponse;
 
 
-static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword, const char* pCaFile) {
+static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword) {
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
@@ -171,7 +171,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	int ret = PAM_AUTH_ERR;
 	const char* pUsername = NULL;
 	const char* pUrl = NULL;
-	const char* pCaFile = NULL;
 	struct pam_message msg;
 	struct pam_conv* pItem;
 	struct pam_response* pResp;
@@ -190,7 +189,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		return PAM_AUTH_ERR;
 	}
 
-	pCaFile = getArg("cafile", argc, argv);
 	if (pam_get_item(pamh, PAM_CONV, (const void**)&pItem) != PAM_SUCCESS || !pItem) {
 		PAM_DEBUG("Couldn't get pam_conv\n");
 		return PAM_AUTH_ERR;
@@ -198,7 +196,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
 
-	ret = authenticate_user(pUrl, pUsername, pResp[0].resp, pCaFile);
+	ret = authenticate_user(pUrl, pUsername, pResp[0].resp);
 
 	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
 	free(pResp);
