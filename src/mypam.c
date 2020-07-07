@@ -57,47 +57,75 @@ static int writeFn(void* buf, size_t len, size_t size, void* userdata) {
 	return len * size;
 }
 
-static int getUrl(const char* pUrl, const char* pUsername, const char* pPassword, const char* pCaFile) {
-	printf("Start stuff\n");
+static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword, const char* pCaFile) {
+	printf("Initiating authentication request\n");
 
 	CURL* pCurl = curl_easy_init();
 	int res = -1;
-
-	char* pUserPass;
-	int len = strlen(pUsername) + strlen(pPassword) + 2; // : separator & trailing null
-
 	if (!pCurl) {
-		return 0;
+		return res;
 	}
 
-	pUserPass = malloc(len);
+	char* pCredentials;
+	int len = strlen(pUsername) + strlen(pPassword) + 42;
 
-	sprintf(pUserPass, "%s:%s", pUsername, pPassword);
+	pCredentials = malloc(len);
+	sprintf(pCredentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}", pUsername, pPassword);
+
+
+	printf("pCredentials: %s\n", pCredentials);
 
 	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
 	curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeFn);
-	curl_easy_setopt(pCurl, CURLOPT_USERPWD, pUserPass);
+	curl_easy_setopt(pCurl, CURLOPT_HEADER, 1L);
+	curl_easy_setopt(pCurl, CURLOPT_POSTFIELDS, pCredentials);
 	curl_easy_setopt(pCurl, CURLOPT_NOPROGRESS, 1); // we don't care about progress
 	curl_easy_setopt(pCurl, CURLOPT_FAILONERROR, 1);
 	// we don't want to leave our user waiting at the login prompt forever
 	curl_easy_setopt(pCurl, CURLOPT_TIMEOUT, 1);
+	curl_easy_setopt(pCurl, CURLOPT_VERBOSE, 1L);
+
+	struct curl_slist *pHeaders = NULL;
+	pHeaders = curl_slist_append(pHeaders, "Accept: application/json");
+	pHeaders = curl_slist_append(pHeaders, "Content-Type: application/json");
+	curl_easy_setopt(pCurl, CURLOPT_HTTPHEADER, pHeaders);
+
 
 	// SSL needs 16k of random stuff. We'll give it some space in RAM.
+/*
 	curl_easy_setopt(pCurl, CURLOPT_RANDOM_FILE, "/dev/urandom");
 	curl_easy_setopt(pCurl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(pCurl, CURLOPT_SSL_VERIFYHOST, 2);
 	curl_easy_setopt(pCurl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+*/
 
 	// synchronous, but we don't really care
 	res = curl_easy_perform(pCurl);
 
-	memset(pUserPass, '\0', len);
-	free(pUserPass);
-	curl_easy_cleanup(pCurl);
+	if(res != CURLE_OK) {
+		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+	}
 
-	printf("Res: %d\n", res);
+	memset(pCredentials, '\0', len);
+	free(pCredentials);
+	curl_easy_cleanup(pCurl);
+	curl_slist_free_all(pHeaders);
+
+	printf("Response status: %d\n", res);
 
 	return res;
+}
+
+static int get_user_name(pam_handle_t *pamh, const char** userName) {
+	int status;
+	int retval = pam_get_user(pamh, userName, NULL);
+	if (retval != PAM_SUCCESS || userName == NULL || *userName == NULL) {
+		status = PAM_AUTHINFO_UNAVAIL;
+		fprintf(stderr, "User name lookup failed\n");
+	} else {
+		status = PAM_SUCCESS;
+	}
+	return status;
 }
 
 /* Expected hooks that are supported. */
@@ -119,12 +147,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	const struct pam_message* pMsg = &msg;
 
 	msg.msg_style = PAM_PROMPT_ECHO_OFF;
-	msg.msg = "Cool buddy: ";
+	msg.msg = "Flight Center password: ";
 
 	printf("I got called\n");
 
-	if (pam_get_user(pamh, &pUsername, NULL) != PAM_SUCCESS) {
-		return PAM_AUTH_ERR;
+	int statusCode = get_user_name(pamh, &pUsername);
+	if (statusCode != PAM_SUCCESS) {
+		return statusCode;
 	}
 
 	pUrl = getArg("url", argc, argv);
@@ -142,7 +171,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	ret = PAM_SUCCESS;
 
-	if (getUrl(pUrl, pUsername, pResp[0].resp, pCaFile) != 0) {
+	if (authenticate_user(pUrl, pUsername, pResp[0].resp, pCaFile) != 0) {
 		ret = PAM_AUTH_ERR;
 	}
 
