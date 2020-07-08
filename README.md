@@ -23,9 +23,33 @@ make
 sudo make install
 ```
 
-### Installing with Flight Runway
+### Installing from the Alces Flight RPM repository:
 
-TBC
+ * Enable the Alces Flight RPM repository:
+
+    ```
+    yum install https://alces-flight.s3-eu-west-1.amazonaws.com/repos/alces-flight/x86_64/alces-flight-release-1-1.noarch.rpm
+    ```
+
+ * Rebuild your `yum` cache:
+
+    ```
+    yum makecache
+    ```
+    
+ * Install the `flight-pam` RPM:
+
+    ```
+    [root@myhost ~]# yum install flight-pam
+    ```
+
+ * Link the files into place.
+
+    ```
+    [root@myhost ~]# ln -s /opt/flight/etc/pam.d/flight /etc/pam.d/flight 
+    [root@myhost ~]# ln -s /opt/flight/lib64/security/flight-pam.so /lib64/security/flight-pam.so
+    ```
+
 
 ## Configuration
 
