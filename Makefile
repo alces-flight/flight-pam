@@ -11,4 +11,4 @@ test: src/test.c
 	$(CC) $(CFLAGS) -o $@ $< -lpam -lpam_misc
 
 install: pam_flight.so
-	install -m 755 pam_flight.so $(PREFIX)/lib64/security
+	install -m 755 pam_flight.so $(PREFIX)/usr/lib/security/
