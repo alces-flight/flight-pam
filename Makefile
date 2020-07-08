@@ -1,14 +1,14 @@
 CFLAGS += -Werror -Wall
-all: test flight-pam.so
+all: test pam-flight.so
 
 clean:
-	$(RM) test flight-pam.so *.o
+	$(RM) test pam-flight.so *.o
 
-flight-pam.so: src/flight-pam.c
+pam-flight.so: src/pam-flight.c
 	$(CC) $(CFLAGS) -fPIC -shared -Xlinker -x -o $@ $< -lcurl
 
 test: src/test.c
 	$(CC) $(CFLAGS) -o $@ $< -lpam -lpam_misc
 
-install: flight-pam.so
-	install -m 755 flight-pam.so $(PREFIX)/lib64/security
+install: pam-flight.so
+	install -m 755 pam-flight.so $(PREFIX)/lib64/security
