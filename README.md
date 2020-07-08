@@ -46,8 +46,7 @@ sudo make install
  * Link the files into place.
 
     ```
-    [root@myhost ~]# ln -s /opt/flight/etc/pam.d/flight /etc/pam.d/flight 
-    [root@myhost ~]# ln -s /opt/flight/lib64/security/flight-pam.so /lib64/security/flight-pam.so
+    [root@myhost ~]# ln -s /opt/flight/etc/pam.d/flight /etc/pam.d/flight
     ```
 
 
@@ -59,12 +58,16 @@ distro.  Some examples are shown below.
 
 ### Use Flight PAM for SSH access on Centos 7
 
-Create the file `/etc/pam.d/flight` containing the following:
+If `flight-pam` has been installed from source create the file
+`/etc/pam.d/flight` containing the following:
 
 ```
 #%PAM-1.0
-auth sufficient flight-pam.so url=https://accounts.alces-flight.com/sign-in
+auth sufficient pam-flight.so url=https://accounts.alces-flight.com/sign-in
 ```
+
+If `flight-pam` was installed from the RPM using the instructions above you
+will already have created a suitable symlink at `/etc/pam.d/flight`.
 
 Edit the file `/etc/pam.d/sshd` and add the line
 
