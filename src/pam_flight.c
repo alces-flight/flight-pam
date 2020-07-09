@@ -193,10 +193,14 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	}
 
 	msg.msg_style = PAM_PROMPT_ECHO_OFF;
-	msg.msg = "Flight Center password: ";
-	pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
+	msg.msg = "Flight Password: ";
+	ret = pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
+	if (ret != PAM_SUCCESS) {
+		return ret;
+	}
 
 	ret = authenticate_user(pUrl, pUsername, pResp[0].resp);
+	pam_set_item(pamh, PAM_AUTHTOK, pResp[0].resp);
 
 	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
 	free(pResp);
