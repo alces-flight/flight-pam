@@ -43,12 +43,6 @@ sudo make install
     [root@myhost ~]# yum install flight-pam
     ```
 
- * Link the files into place.
-
-    ```
-    [root@myhost ~]# ln -s /opt/flight/etc/pam.d/flight /etc/pam.d/flight
-    ```
-
 
 ## Configuration
 
@@ -56,26 +50,21 @@ The PAM configuration files located in `/etc/pam.d/` need to be edited to
 enable Flight PAM.  The exact files and configuration vary from distro to
 distro.  Some examples are shown below.
 
-### Use Flight PAM for SSH access on Centos 7
+### Use Flight PAM for all password authentication on Centos 7
 
-If `flight-pam` has been installed from source create the file
-`/etc/pam.d/flight` containing the following:
-
-```
-#%PAM-1.0
-auth sufficient pam-flight.so url=https://accounts.alces-flight.com/sign-in
-```
-
-If `flight-pam` was installed from the RPM using the instructions above you
-will already have created a suitable symlink at `/etc/pam.d/flight`.
-
-Edit the file `/etc/pam.d/sshd` and add the line
+Edit the file `/etc/pam.d/password-auth` and add the following line to the
+desired location.  We recommend adding it directly above the `pam_unix.so`
+line.
 
 ```
-auth include flight
+auth        include       /opt/flight/etc/pam.d/flight
 ```
 
-Edit the file `/etc/ssh/sshd_config` and ensure that `PasswordAuthentication`,
+If `flight-pam` has been installed from source, you will have to adjust the
+path to the location you have installed it to.
+
+To ensure that SSH uses `flight-pam`, you will need to edit the file
+`/etc/ssh/sshd_config` and ensure that `PasswordAuthentication`,
 `ChallengeResponseAuthentication` and `UsePAM` are all set to `yes`.
 
 Finally, restart `sshd`, `sudo systemctl restart sshd`.
