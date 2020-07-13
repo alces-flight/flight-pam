@@ -5,6 +5,7 @@
 #include <syslog.h>
 
 #include <security/pam_modules.h>
+#include <security/pam_modutil.h>
 #include <security/pam_ext.h>
 
 #include <curl/curl.h>
@@ -188,7 +189,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	if (ret != PAM_SUCCESS) {
 		return ret;
 	}
-
+	
 	pUrl = getArg("url", argc, argv);
 	if (!pUrl) {
 		pam_syslog(pamh, LOG_CRIT, "pam_flight: `url` argument not given");
@@ -206,9 +207,28 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	if (ret != PAM_SUCCESS) {
 		return ret;
 	}
+	pam_set_item(pamh, PAM_AUTHTOK, pResp[0].resp);
+
+	/*
+	 * We don't want to allow spammed SSH attempts from bots to DDOS the
+	 * SSO server.  We only continue with an attempt to authenticate if
+	 * there is a local user matching pUsername.
+	 *
+	 * We do this after we've prompted for the password to avoid leaking
+	 * which users exist.
+	 *
+	 * Unfortunately, we're not making an HTTP request and hence returning
+	 * much earlier.  This leaves us open to a timing attack to determine
+	 * which local users exist.
+	 */
+	if (pam_modutil_getpwnam(pamh, pUsername) == NULL) {
+		pam_syslog(pamh, LOG_DEBUG, "user unknown [%s]", pUsername);
+		return PAM_USER_UNKNOWN;
+		memset(pResp[0].resp, 0, strlen(pResp[0].resp));
+		free(pResp);
+	}
 
 	ret = authenticate_user(pamh, pUrl, pUsername, pResp[0].resp);
-	pam_set_item(pamh, PAM_AUTHTOK, pResp[0].resp);
 
 	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
 	free(pResp);
