@@ -179,11 +179,8 @@ PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const ch
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, const char **argv) {
 	int ret = PAM_AUTH_ERR;
 	const char* pUsername = NULL;
+	const char* pPassword = NULL;
 	const char* pUrl = NULL;
-	struct pam_message msg;
-	struct pam_conv* pItem;
-	struct pam_response* pResp;
-	const struct pam_message* pMsg = &msg;
 
 	ret = get_user_name(pamh, &pUsername);
 	if (ret != PAM_SUCCESS) {
@@ -196,18 +193,21 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		return PAM_SERVICE_ERR;
 	}
 
-	if (pam_get_item(pamh, PAM_CONV, (const void**)&pItem) != PAM_SUCCESS || !pItem) {
-		pam_syslog(pamh, LOG_ERR, "unable to get pam_conv");
-		return PAM_AUTH_ERR;
-	}
-
-	msg.msg_style = PAM_PROMPT_ECHO_OFF;
-	msg.msg = "Flight Password: ";
-	ret = pItem->conv(1, &pMsg, &pResp, pItem->appdata_ptr);
+	ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
 	if (ret != PAM_SUCCESS) {
+		if (ret != PAM_CONV_AGAIN) {
+			pam_syslog(pamh, LOG_CRIT,
+			    "auth could not identify password for [%s]", pUsername);
+		} else {
+			/*
+			 * It is safe to resume this function so we translate this
+			 * retval to the value that indicates we're happy to resume.
+			 */
+			ret = PAM_INCOMPLETE;
+		}
+		pUsername = NULL;
 		return ret;
 	}
-	pam_set_item(pamh, PAM_AUTHTOK, pResp[0].resp);
 
 	/*
 	 * We don't want to allow spammed SSH attempts from bots to DDOS the
@@ -224,14 +224,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	if (pam_modutil_getpwnam(pamh, pUsername) == NULL) {
 		pam_syslog(pamh, LOG_DEBUG, "user unknown [%s]", pUsername);
 		return PAM_USER_UNKNOWN;
-		memset(pResp[0].resp, 0, strlen(pResp[0].resp));
-		free(pResp);
 	}
 
-	ret = authenticate_user(pamh, pUrl, pUsername, pResp[0].resp);
-
-	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
-	free(pResp);
-
+	ret = authenticate_user(pamh, pUrl, pUsername, pPassword);
 	return ret;
 }
