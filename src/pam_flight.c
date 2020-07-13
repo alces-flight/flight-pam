@@ -85,10 +85,21 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 	}
 
 	HttpResponse* httpResponse = malloc(sizeof(HttpResponse));
+	if (httpResponse == NULL) {
+		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate httpResponse");
+		curl_easy_cleanup(pCurl);
+		return PAM_BUF_ERR;
+	}
 	char* pCredentials;
 	int len = strlen(pUsername) + strlen(pPassword) + 42;
 
 	pCredentials = malloc(len);
+	if (pCredentials == NULL) {
+		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate pCredentials");
+		curl_easy_cleanup(pCurl);
+		free(httpResponse);
+		return PAM_BUF_ERR;
+	}
 	sprintf(pCredentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}", pUsername, pPassword);
 
 	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
