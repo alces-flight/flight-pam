@@ -2,15 +2,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <syslog.h>
 
 #include <security/pam_modules.h>
-#include <curl/curl.h>
+#include <security/pam_ext.h>
 
-#ifdef DEBUG
-#define PAM_DEBUG(fmt...) fprintf(stderr, "DEBUG: " fmt);
-#else
-#define PAM_DEBUG(fmt...)
-#endif
+#include <curl/curl.h>
 
 /* Expected hooks that are not supported. */
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
@@ -78,12 +75,12 @@ typedef struct {
 } HttpResponse;
 
 
-static int authenticate_user(const char* pUrl, const char* pUsername, const char* pPassword) {
+static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* pUsername, const char* pPassword) {
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
 	if (!pCurl) {
-		PAM_DEBUG("Error initialising curl\n");
+		pam_syslog(pamh, LOG_ERR, "error initialising curl");
 		return PAM_AUTH_ERR;
 	}
 
@@ -125,16 +122,18 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 
 	if (httpResponse->err.error) {
 		authStatus = PAM_AUTH_ERR;
-		PAM_DEBUG("%s\n", httpResponse->err.msg);
+		pam_syslog(pamh, LOG_ERR, "authentication error; username=%s url=%s http_response=%s", pUsername, pUrl, httpResponse->err.msg);
 	} else {
-		PAM_DEBUG("Response status: %ld\n", httpResponse->responseCode);
 		if (httpResponse->responseCode == 200) {
 			authStatus = PAM_SUCCESS;
+			pam_syslog(pamh, LOG_DEBUG, "authentication success; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
+
 		} else if (httpResponse->responseCode == 401) {
 			authStatus = PAM_PERM_DENIED;
+			pam_syslog(pamh, LOG_DEBUG, "authentication failure; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
 		} else {
 			authStatus = PAM_AUTH_ERR;
-			PAM_DEBUG("%s\n", "Bad HTTP response code");
+			pam_syslog(pamh, LOG_DEBUG, "authentication error; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
 		}
 	}
 
@@ -144,8 +143,6 @@ static int authenticate_user(const char* pUrl, const char* pUsername, const char
 	curl_slist_free_all(pHeaders);
 	free(httpResponse);
 
-	PAM_DEBUG("Auth status: %d\n", authStatus);
-
 	return authStatus;
 }
 
@@ -154,7 +151,7 @@ static int get_user_name(pam_handle_t *pamh, const char** userName) {
 	int retval = pam_get_user(pamh, userName, NULL);
 	if (retval != PAM_SUCCESS || userName == NULL || *userName == NULL) {
 		status = PAM_AUTHINFO_UNAVAIL;
-		PAM_DEBUG("User name lookup failed\n");
+		pam_syslog(pamh, LOG_DEBUG, "could not obtain user");
 	} else {
 		status = PAM_SUCCESS;
 	}
@@ -183,12 +180,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
 	pUrl = getArg("url", argc, argv);
 	if (!pUrl) {
-		PAM_DEBUG("URL argument not given\n");
-		return PAM_AUTH_ERR;
+		pam_syslog(pamh, LOG_CRIT, "pam_flight: `url` argument not given");
+		return PAM_SERVICE_ERR;
 	}
 
 	if (pam_get_item(pamh, PAM_CONV, (const void**)&pItem) != PAM_SUCCESS || !pItem) {
-		PAM_DEBUG("Couldn't get pam_conv\n");
+		pam_syslog(pamh, LOG_ERR, "unable to get pam_conv");
 		return PAM_AUTH_ERR;
 	}
 
@@ -199,7 +196,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		return ret;
 	}
 
-	ret = authenticate_user(pUrl, pUsername, pResp[0].resp);
+	ret = authenticate_user(pamh, pUrl, pUsername, pResp[0].resp);
 	pam_set_item(pamh, PAM_AUTHTOK, pResp[0].resp);
 
 	memset(pResp[0].resp, 0, strlen(pResp[0].resp));
