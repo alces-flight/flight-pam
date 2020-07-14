@@ -6,8 +6,8 @@
 
      gcc pam_flight_user_map.c -shared -lpam -fPIC -o pam_flight_user_map.so
 
-  And create /opt/flight/etc/security/user_map.conf with the desired mapping
-  in the format:  unix_user_name: flight_user_name
+  And create USER_MAP_PREFIX/etc/security/flight_user_map.conf with the
+  desired mapping in the format:  unix_user_name: flight_user_name
 =========================================================
 #comments and empty lines are ignored
 john: jack
@@ -56,7 +56,11 @@ pam_syslog (const pam_handle_t *pamh, int priority,
 }
 #endif
 
-#define FILENAME "/opt/flight/etc/security/user_map.conf"
+#ifdef USER_MAP_PREFIX
+#define FILENAME USER_MAP_PREFIX"/etc/security/flight_user_map.conf"
+#else
+#define FILENAME "/etc/security/flight_user_map.conf"
+#endif
 #define skip(what) while (*s && (what)) s++
 #define SYSLOG_DEBUG if (mode_debug) pam_syslog
 
