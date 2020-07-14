@@ -6,7 +6,7 @@
 
      gcc pam_flight_user_map.c -shared -lpam -fPIC -o pam_flight_user_map.so
 
-  And create USER_MAP_PREFIX/etc/security/flight_user_map.conf with the
+  And create /etc/security/flight_user_map.conf with the
   desired mapping in the format:  unix_user_name: flight_user_name
 =========================================================
 #comments and empty lines are ignored
@@ -15,10 +15,16 @@ bob:  admin
 top:  accounting
 =========================================================
 
+You can use a different location for the user map file by adding the
+`mapfile` option like this
+=========================================================
+auth            optional        pam_flight_user_map.so mapfile=/path/to/map.conf
+=========================================================
+
 If something doesn't work as expected you can get verbose
 comments with the 'debug' option like this
 =========================================================
-auth            required        pam_flight_user_map.so debug
+auth            optional        pam_flight_user_map.so debug
 =========================================================
 These comments are written to the syslog as 'authpriv.debug'
 and usually end up in /var/log/secure file.
@@ -56,15 +62,49 @@ pam_syslog (const pam_handle_t *pamh, int priority,
 }
 #endif
 
-#ifdef USER_MAP_PREFIX
-#define FILENAME USER_MAP_PREFIX"/etc/security/flight_user_map.conf"
-#else
-#define FILENAME "/etc/security/flight_user_map.conf"
-#endif
+#define DEFAULT_FILENAME "/etc/security/flight_user_map.conf"
 #define skip(what) while (*s && (what)) s++
-#define SYSLOG_DEBUG if (mode_debug) pam_syslog
+#define SYSLOG_DEBUG if (mapargs.debug) pam_syslog
+
+const char *
+str_skip_icase_prefix_len(const char *str, const char *prefix)
+{
+  size_t prefix_len = strlen(prefix);
+  return strncasecmp(str, prefix, prefix_len) ? NULL : str + prefix_len;
+}
 
 static const char debug_keyword[]= "debug";
+static const char mapfile_prefix[]= "mapfile=";
+
+struct flight_user_map_args {
+        const char *filename;
+        int debug;
+};
+
+static int
+parse_args(pam_handle_t *pamh, struct flight_user_map_args *mapargs,
+           int argc, const char **argv)
+{
+    mapargs->filename = DEFAULT_FILENAME;
+    mapargs->debug = 0;
+
+    int i;
+    for (i=0; i<argc; ++i) {
+        const char *str;
+        if (strcasecmp(argv[i], debug_keyword) == 0) {
+            mapargs->debug = 1;
+            continue;
+        }
+        str = str_skip_icase_prefix_len(argv[i], mapfile_prefix);
+        if (str != NULL) {
+          mapargs->filename = str;
+          continue;
+        }
+        pam_syslog(pamh, LOG_ERR, "unrecognized option [%s]", argv[i]);
+    }
+    return 1;
+}
+
 
 void data_cleanup(pam_handle_t *pamh, void *data, int error_status)
 {
@@ -77,24 +117,24 @@ void data_cleanup(pam_handle_t *pamh, void *data, int error_status)
 int pam_sm_authenticate(pam_handle_t *pamh, int flags,
     int argc, const char *argv[])
 {
-  int mode_debug= 0;
+  struct flight_user_map_args mapargs;
   int pam_err, line= 0;
   const char *username;
   char buf[256];
   FILE *f;
 
-  for (; argc > 0; argc--) 
-  {
-    if (strcasecmp(argv[argc-1], debug_keyword) == 0)
-      mode_debug= 1;
+  memset(&mapargs, '\0', sizeof(mapargs));
+  if (!parse_args(pamh, &mapargs, argc, argv)) {
+    pam_syslog(pamh, LOG_ERR, "failed to parse the module arguments");
+    return PAM_ABORT;
   }
 
-  SYSLOG_DEBUG(pamh, LOG_DEBUG, "Opening file '%s'.\n", FILENAME);
+  SYSLOG_DEBUG(pamh, LOG_DEBUG, "Opening file '%s'.\n", mapargs.filename);
 
-  f= fopen(FILENAME, "r");
+  f= fopen(mapargs.filename, "r");
   if (f == NULL)
   {
-    pam_syslog(pamh, LOG_ERR, "Cannot open '%s'\n", FILENAME);
+    pam_syslog(pamh, LOG_ERR, "Cannot open '%s'\n", mapargs.filename);
     return PAM_SYSTEM_ERR;
   }
 
@@ -157,7 +197,7 @@ int pam_sm_authenticate(pam_handle_t *pamh, int flags,
   goto ret;
 
 syntax_error:
-  pam_syslog(pamh, LOG_ERR, "Syntax error at %s:%d", FILENAME, line);
+  pam_syslog(pamh, LOG_ERR, "Syntax error at %s:%d", mapargs.filename, line);
   pam_err= PAM_SYSTEM_ERR;
 ret:
   fclose(f);

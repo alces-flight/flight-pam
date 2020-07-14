@@ -1,4 +1,4 @@
-CFLAGS += -Werror -Wall -DUSER_MAP_PREFIX=$(USER_MAP_PREFIX)
+CFLAGS += -Werror -Wall
 all: test pam_flight.so pam_flight_user_map.so
 
 clean:
