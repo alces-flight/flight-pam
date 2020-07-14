@@ -35,32 +35,10 @@ and usually end up in /var/log/secure file.
 #include <ctype.h>
 #include <string.h>
 #include <syslog.h>
-#include <grp.h>
 #include <pwd.h>
 
-#ifdef HAVE_PAM_EXT_H
-#include <security/pam_ext.h>
-#endif
-
-#ifdef HAVE_PAM_APPL_H
-#include <unistd.h>
-#include <security/pam_appl.h>
-#endif
-
 #include <security/pam_modules.h>
-
-#ifndef HAVE_PAM_SYSLOG
-#include <stdarg.h>
-static void
-pam_syslog (const pam_handle_t *pamh, int priority,
-      const char *fmt, ...)
-{
-  va_list args;
-  va_start (args, fmt);
-  vsyslog (priority, fmt, args);
-  va_end (args);
-}
-#endif
+#include <security/pam_ext.h>
 
 #define DEFAULT_FILENAME "/etc/security/flight_user_map.conf"
 #define skip(what) while (*s && (what)) s++
