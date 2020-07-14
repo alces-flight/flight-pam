@@ -1,10 +1,10 @@
 # Flight PAM
 
-PAM module using the Alces Flight Platform for authentication.
+A set of PAM modules using the Alces Flight Platform for authentication.
 
 ## Overview
 
-Flight PAM is a PAM module which uses the Alces Flight Platform for
+Flight PAM is a set of PAM modules which uses the Alces Flight Platform for
 authentication, allowing a user to use their Alces Flight Platform password to
 authenticate their Linux account.
 
@@ -28,7 +28,7 @@ sudo make install
  * Enable the Alces Flight RPM repository:
 
     ```
-    yum install https://alces-flight.s3-eu-west-1.amazonaws.com/repos/alces-flight/x86_64/alces-flight-release-1-1.noarch.rpm
+    yum install https://alces-flight.s3-eu-west-1.amazonaws.com/repos/pub/centos/7/alces-flight-release-latest.noarch.rpm
     ```
 
  * Rebuild your `yum` cache:
@@ -52,9 +52,9 @@ distro.  Some examples are shown below.
 
 ### Use Flight PAM for all password authentication on Centos 7
 
-Edit the file `/etc/pam.d/password-auth` and add the following line to the
-desired location.  We recommend adding it directly above the `pam_unix.so`
-line.
+Edit the files `/etc/pam.d/password-auth` and `/etc/pam.d/system-auth` and add
+the following line to the desired location.  We recommend adding it directly
+above the `pam_unix.so` line.
 
 ```
 auth        include       /opt/flight/etc/pam.d/flight
@@ -68,6 +68,19 @@ To ensure that SSH uses `flight-pam`, you will need to edit the file
 `ChallengeResponseAuthentication` and `UsePAM` are all set to `yes`.
 
 Finally, restart `sshd`, `sudo systemctl restart sshd`.
+
+
+## Username mapping
+
+It's possible that a user's UNIX username will not match their Flight
+username.  Flight PAM supports mapping UNIX usernames to Flight usernames in
+the file `/opt/flight/etc/security/flight_user_map.conf`.  The file is
+commented explaining its format.  Briefly, to add a mapping from the UNIX
+username "bob" to the Flight username "kate", add the following line:
+
+```
+bob: kate
+```
 
 
 ## Prior work
