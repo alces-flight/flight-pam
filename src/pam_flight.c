@@ -178,13 +178,24 @@ PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const ch
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, const char **argv) {
 	int ret = PAM_AUTH_ERR;
-	const char* pUsername = NULL;
+	const char* pUnixUsername = NULL;
 	const char* pPassword = NULL;
 	const char* pUrl = NULL;
+	const void *pUserMap = NULL;
+	const char *pFlightUsername = NULL;
 
-	ret = get_user_name(pamh, &pUsername);
+	ret = get_user_name(pamh, &pUnixUsername);
 	if (ret != PAM_SUCCESS) {
 		return ret;
+	}
+
+	ret = pam_get_data(pamh, "pam_flight_user_map_data", &pUserMap);
+	if (ret == PAM_SUCCESS && pUserMap) {
+		pFlightUsername = (const char *)pUserMap;
+		pam_syslog(pamh, LOG_DEBUG, "username mapped from=%s to=%s", pUnixUsername, pFlightUsername);
+	} else {
+		pFlightUsername = pUnixUsername;
+		pam_syslog(pamh, LOG_DEBUG, "username mapping data not found");
 	}
 	
 	pUrl = getArg("url", argc, argv);
@@ -197,7 +208,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	if (ret != PAM_SUCCESS) {
 		if (ret != PAM_CONV_AGAIN) {
 			pam_syslog(pamh, LOG_CRIT,
-			    "auth could not identify password for [%s]", pUsername);
+			    "auth could not identify password for [%s]", pUnixUsername);
 		} else {
 			/*
 			 * It is safe to resume this function so we translate this
@@ -205,14 +216,14 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 			 */
 			ret = PAM_INCOMPLETE;
 		}
-		pUsername = NULL;
+		pUnixUsername = NULL;
 		return ret;
 	}
 
 	/*
 	 * We don't want to allow spammed SSH attempts from bots to DDOS the
 	 * SSO server.  We only continue with an attempt to authenticate if
-	 * there is a local user matching pUsername.
+	 * there is a local user matching pUnixUsername.
 	 *
 	 * We do this after we've prompted for the password to avoid leaking
 	 * which users exist.
@@ -221,11 +232,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	 * much earlier.  This leaves us open to a timing attack to determine
 	 * which local users exist.
 	 */
-	if (pam_modutil_getpwnam(pamh, pUsername) == NULL) {
-		pam_syslog(pamh, LOG_DEBUG, "user unknown [%s]", pUsername);
+	if (pam_modutil_getpwnam(pamh, pUnixUsername) == NULL) {
+		pam_syslog(pamh, LOG_DEBUG, "user unknown [%s]", pUnixUsername);
 		return PAM_USER_UNKNOWN;
 	}
 
-	ret = authenticate_user(pamh, pUrl, pUsername, pPassword);
+	ret = authenticate_user(pamh, pUrl, pFlightUsername, pPassword);
 	return ret;
 }
