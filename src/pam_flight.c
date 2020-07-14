@@ -27,6 +27,55 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, con
 	return PAM_SESSION_ERR; /* Service not supported */
 }
 
+void jsonEscapeString(char* dst, const char* src) {
+	int srcIdx, dstIdx;
+	int len = strlen(src);
+	for (srcIdx = 0, dstIdx = 0; srcIdx<len; srcIdx++, dstIdx++) {
+		if (src[srcIdx] == '\\' || src[srcIdx] == '"') {
+			dst[dstIdx] = '\\';
+			dstIdx++;
+		}
+		dst[dstIdx] = src[srcIdx];
+	}
+	dst[dstIdx] = '\0';
+}
+
+int buildCredentials(pam_handle_t *pamh, char *credentials, const char* username, const char* password) {
+	char* escapedUsername;
+	char* escapedPassword;
+	int credentialsLen;
+
+	escapedUsername = malloc(strlen(username) * 2);
+	if (escapedUsername == NULL) {
+		pam_syslog(pamh, LOG_CRIT,
+				"pam_flight: cannot allocate escapedUsername");
+		return PAM_BUF_ERR;
+	}
+	jsonEscapeString(escapedUsername, username);
+
+	escapedPassword = malloc(strlen(password) * 2);
+	if (escapedUsername == NULL) {
+		pam_syslog(pamh, LOG_CRIT,
+				"pam_flight: cannot allocate escapedPassword");
+		free(escapedUsername);
+		return PAM_BUF_ERR;
+	}
+	jsonEscapeString(escapedPassword, password);
+
+	credentialsLen = strlen(escapedUsername) + strlen(escapedUsername) + 42;
+	credentials = malloc(credentialsLen);
+	if (credentials == NULL) {
+		pam_syslog(pamh, LOG_CRIT,
+				"pam_flight: cannot allocate credentials");
+		free(escapedUsername);
+		free(escapedPassword);
+		return PAM_BUF_ERR;
+	}
+	sprintf(credentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
+			escapedUsername, escapedUsername);
+	return PAM_SUCCESS;
+}
+
 /*
  * Makes getting arguments easier. Accepted arguments are of the form: name=value
  *
@@ -80,6 +129,8 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
+	char* pCredentials = NULL;
+
 	if (!pCurl) {
 		pam_syslog(pamh, LOG_ERR, "error initialising curl");
 		return PAM_AUTH_ERR;
@@ -91,17 +142,13 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 		curl_easy_cleanup(pCurl);
 		return PAM_BUF_ERR;
 	}
-	char* pCredentials;
-	int len = strlen(pUsername) + strlen(pPassword) + 42;
 
-	pCredentials = malloc(len);
-	if (pCredentials == NULL) {
-		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate pCredentials");
-		curl_easy_cleanup(pCurl);
-		free(httpResponse);
-		return PAM_BUF_ERR;
+	if ((authStatus = buildCredentials(pamh, pCredentials, pUsername, pPassword)) != PAM_SUCCESS) {
+		if (pCredentials != NULL) {
+			free(pCredentials);
+		}
+		return authStatus;
 	}
-	sprintf(pCredentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}", pUsername, pPassword);
 
 	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
 	curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeFn);
@@ -149,7 +196,7 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 		}
 	}
 
-	memset(pCredentials, '\0', len);
+	memset(pCredentials, '\0', strlen(pCredentials));
 	free(pCredentials);
 	curl_easy_cleanup(pCurl);
 	curl_slist_free_all(pHeaders);
