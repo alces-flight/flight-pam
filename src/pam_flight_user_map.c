@@ -62,6 +62,14 @@ pam_syslog (const pam_handle_t *pamh, int priority,
 
 static const char debug_keyword[]= "debug";
 
+void data_cleanup(pam_handle_t *pamh, void *data, int error_status)
+{
+    if (data) {
+            /* junk it */
+            (void) free(data);
+    }
+}
+
 int pam_sm_authenticate(pam_handle_t *pamh, int flags,
     int argc, const char *argv[])
 {
@@ -125,16 +133,23 @@ int pam_sm_authenticate(pam_handle_t *pamh, int flags,
                                     from, cmp_result ? "YES":"NO");
     if (cmp_result)
     {
-      pam_err= pam_set_item(pamh, PAM_USER, to);
+      char *mappedData = malloc(strlen(to));
+      if (mappedData == NULL) {
+        pam_syslog(pamh, LOG_CRIT, "pam_flight_user_map: cannot allocate mappedData");
+        pam_err = PAM_BUF_ERR;
+        goto ret;
+      }
+      strcpy(mappedData, to);
+      pam_err = pam_set_data(pamh, "pam_flight_user_map_data", mappedData, data_cleanup);
       SYSLOG_DEBUG(pamh, LOG_DEBUG, 
           (pam_err == PAM_SUCCESS) ? "User mapped as '%s'\n" :
-                                     "Couldn't map as '%s'\n", to);
+                                     "Couldn't map as '%s'\n", mappedData);
       goto ret;
     }
   }
 
   SYSLOG_DEBUG(pamh, LOG_DEBUG, "User not found in the list.\n");
-  pam_err= PAM_AUTH_ERR;
+  pam_err= PAM_SUCCESS;
   goto ret;
 
 syntax_error:
