@@ -302,21 +302,19 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
         return ret;
     }
 
-    ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
-    if (ret != PAM_SUCCESS) {
-        if (ret != PAM_CONV_AGAIN) {
-            pam_syslog(pamh, LOG_CRIT,
-                    "auth could not identify password for [%s]", pUnixUsername);
-        } else {
-            /*
-             * It is safe to resume this function so we translate this
-             * retval to the value that indicates we're happy to resume.
-             */
-            ret = PAM_INCOMPLETE;
-        }
-        pUnixUsername = NULL;
-        return ret;
-    }
+    /*
+     * We don't want to allow spammed SSH attempts from bots to DDOS the
+     * SSO server.  We perform a number of checks here to prevent that.
+     *
+     * Only after we've passed these checks do we prompt for a password.  As
+     * it is expected that the `pam_unix` module is after this module, we
+     * expect the user to be prompted for a password by `pam_unix`.  So we
+     * shouldn't be leaking which users exist or pass these checks.
+     *
+     * If the checks fail we don't make an HTTP request and hence return much
+     * earlier.  This leaves us open to a timing attack to determine which
+     * users pass all of these checks.
+     */
 
     ret = pam_get_data(pamh, "pam_flight_user_map_data", &pUserMap);
     if (ret == PAM_SUCCESS && pUserMap) {
@@ -336,18 +334,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
         return PAM_PERM_DENIED;
     }
 
-    /*
-     * We don't want to allow spammed SSH attempts from bots to DDOS the
-     * SSO server.  We only continue with an attempt to authenticate if
-     * there is a local user matching pUnixUsername.
-     *
-     * We do this after we've prompted for the password to avoid leaking
-     * which users exist.
-     *
-     * Unfortunately, we're not making an HTTP request and hence returning
-     * much earlier.  This leaves us open to a timing attack to determine
-     * which local users exist.
-     */
     if ((user = pam_modutil_getpwnam(pamh, pUnixUsername)) == NULL) {
         pam_syslog(pamh, LOG_NOTICE, "authentication error; user unknown [%s]", pUnixUsername);
         return PAM_USER_UNKNOWN;
@@ -363,6 +349,28 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
         if (flightargs.debug) {
             pam_syslog(pamh, LOG_DEBUG, "authentication failure; uid=%d below minuid=%ld",
                     user->pw_uid, flightargs.minuid);
+        }
+        return PAM_PERM_DENIED;
+    }
+
+    ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , NULL);
+    if (ret != PAM_SUCCESS) {
+        if (ret != PAM_CONV_AGAIN) {
+            pam_syslog(pamh, LOG_CRIT,
+                    "auth could not identify password for [%s]", pUnixUsername);
+        } else {
+            /*
+             * It is safe to resume this function so we translate this
+             * retval to the value that indicates we're happy to resume.
+             */
+            ret = PAM_INCOMPLETE;
+        }
+        pUnixUsername = NULL;
+        return ret;
+    }
+    if (strlen(pPassword) < 6) {
+        if (flightargs.debug) {
+            pam_syslog(pamh, LOG_DEBUG, "authentication failure; password too short");
         }
         return PAM_PERM_DENIED;
     }
