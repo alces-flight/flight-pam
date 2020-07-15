@@ -100,6 +100,17 @@ username "bob" to the Flight username "kate", add the following line:
 bob: kate
 ```
 
+## SELinux
+
+If you have SELinux enabled additional configuration will be required.  If
+installing from RPM, the output of the RPM installation will contain the
+instructions.  They are duplicated here.
+
+```
+setsebool -P authlogin_yubikey 1
+```
+
+
 ## Prior work
 
 This module is based on code taken from https://github.com/beatgammit/pam-http
