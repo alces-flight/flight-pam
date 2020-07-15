@@ -27,6 +27,42 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, con
 	return PAM_SESSION_ERR; /* Service not supported */
 }
 
+const char *
+str_skip_icase_prefix(const char *str, const char *prefix)
+{
+  size_t prefix_len = strlen(prefix);
+  return strncasecmp(str, prefix, prefix_len) ? NULL : str + prefix_len;
+}
+
+struct flight_args {
+	const char *url;
+        int debug;
+};
+
+static int
+parse_args(pam_handle_t *pamh, struct flight_args *flightargs,
+           int argc, const char **argv)
+{
+    flightargs->url = NULL;
+    flightargs->debug = 0;
+
+    int i;
+    for (i=0; i<argc; ++i) {
+        const char *str;
+        if (strcasecmp(argv[i], "debug") == 0) {
+            flightargs->debug = 1;
+            continue;
+        }
+        str = str_skip_icase_prefix(argv[i], "url=");
+        if (str != NULL) {
+          flightargs->url = str;
+          continue;
+        }
+        pam_syslog(pamh, LOG_ERR, "unrecognized option [%s]", argv[i]);
+    }
+    return 1;
+}
+
 void jsonEscapeString(char* dst, const char* src) {
 	int srcIdx, dstIdx;
 	int len = strlen(src);
@@ -77,27 +113,6 @@ char* buildCredentials(const char* username, const char* password) {
 }
 
 /*
- * Makes getting arguments easier. Accepted arguments are of the form: name=value
- *
- * @param pName- name of the argument to get
- * @param argc- number of total arguments
- * @param argv- arguments
- * @return Pointer to value or NULL
- */
-static const char* getArg(const char* pName, int argc, const char** argv) {
-	int len = strlen(pName);
-	int i;
-
-	for (i = 0; i < argc; i++) {
-		if (strncmp(pName, argv[i], len) == 0 && argv[i][len] == '=') {
-			// only give the part url part (after the equals sign)
-			return argv[i] + len + 1;
-		}
-	}
-	return 0;
-}
-
-/*
  * Function to handle stuff from HTTP response.
  *
  * @param buf- Raw buffer from libcurl.
@@ -125,15 +140,15 @@ typedef struct {
 } HttpResponse;
 
 
-static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* pUsername, const char* pPassword) {
+static int authenticate_user(pam_handle_t *pamh, struct flight_args flightargs, const char* pUsername, const char* pPassword) {
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
 	char* pCredentials;
 
 	if (!pCurl) {
-		pam_syslog(pamh, LOG_ERR, "error initialising curl");
-		return PAM_AUTH_ERR;
+		pam_syslog(pamh, LOG_CRIT, "error initialising curl");
+		return PAM_BUF_ERR;
 	}
 
 	HttpResponse* httpResponse = malloc(sizeof(HttpResponse));
@@ -151,7 +166,7 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 		return PAM_AUTH_ERR;
 	}
 
-	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
+	curl_easy_setopt(pCurl, CURLOPT_URL, flightargs.url);
 	curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeFn);
 	curl_easy_setopt(pCurl, CURLOPT_HEADER, 1L);
 	curl_easy_setopt(pCurl, CURLOPT_POSTFIELDS, pCredentials);
@@ -182,18 +197,18 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 
 	if (httpResponse->err.error) {
 		authStatus = PAM_AUTH_ERR;
-		pam_syslog(pamh, LOG_ERR, "authentication error; username=%s url=%s http_response=%s", pUsername, pUrl, httpResponse->err.msg);
+		pam_syslog(pamh, LOG_ERR, "authentication error; username=%s url=%s http_response=%s", pUsername, flightargs.url, httpResponse->err.msg);
 	} else {
 		if (httpResponse->responseCode == 200) {
 			authStatus = PAM_SUCCESS;
-			pam_syslog(pamh, LOG_DEBUG, "authentication success; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
+			pam_syslog(pamh, LOG_NOTICE, "authentication success; username=%s url=%s http_response=%ld", pUsername, flightargs.url, httpResponse->responseCode);
 
 		} else if (httpResponse->responseCode == 401) {
 			authStatus = PAM_PERM_DENIED;
-			pam_syslog(pamh, LOG_DEBUG, "authentication failure; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
+			pam_syslog(pamh, LOG_NOTICE, "authentication failure; username=%s url=%s http_response=%ld", pUsername, flightargs.url, httpResponse->responseCode);
 		} else {
 			authStatus = PAM_AUTH_ERR;
-			pam_syslog(pamh, LOG_DEBUG, "authentication error; username=%s url=%s http_response=%ld", pUsername, pUrl, httpResponse->responseCode);
+			pam_syslog(pamh, LOG_NOTICE, "authentication error; username=%s url=%s http_response=%ld", pUsername, flightargs.url, httpResponse->responseCode);
 		}
 	}
 
@@ -211,7 +226,6 @@ static int get_user_name(pam_handle_t *pamh, const char** userName) {
 	int retval = pam_get_user(pamh, userName, NULL);
 	if (retval != PAM_SUCCESS || userName == NULL || *userName == NULL) {
 		status = PAM_AUTHINFO_UNAVAIL;
-		pam_syslog(pamh, LOG_DEBUG, "could not obtain user");
 	} else {
 		status = PAM_SUCCESS;
 	}
@@ -225,33 +239,45 @@ PAM_EXTERN int pam_sm_setcred( pam_handle_t *pamh, int flags, int argc, const ch
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, const char **argv) {
+	struct flight_args flightargs;
 	int ret = PAM_AUTH_ERR;
 	const char* pUnixUsername = NULL;
 	const char* pPassword = NULL;
-	const char* pUrl = NULL;
 	const void *pUserMap = NULL;
 	const char *pFlightUsername = NULL;
 
+	memset(&flightargs, '\0', sizeof(flightargs));
+	if (!parse_args(pamh, &flightargs, argc, argv)) {
+		pam_syslog(pamh, LOG_ERR, "failed to parse the module arguments");
+		return PAM_ABORT;
+	}
+
+	if (!flightargs.url) {
+		pam_syslog(pamh, LOG_CRIT, "pam_flight: `url` argument not given");
+		return PAM_SERVICE_ERR;
+	}
+
 	ret = get_user_name(pamh, &pUnixUsername);
 	if (ret != PAM_SUCCESS) {
+		if (flightargs.debug) {
+			pam_syslog(pamh, LOG_DEBUG, "could not obtain username");
+		}
 		return ret;
 	}
 
 	ret = pam_get_data(pamh, "pam_flight_user_map_data", &pUserMap);
 	if (ret == PAM_SUCCESS && pUserMap) {
 		pFlightUsername = (const char *)pUserMap;
-		pam_syslog(pamh, LOG_DEBUG, "username mapped from=%s to=%s", pUnixUsername, pFlightUsername);
+		if (flightargs.debug) {
+			pam_syslog(pamh, LOG_DEBUG, "username mapped from=%s to=%s", pUnixUsername, pFlightUsername);
+		}
 	} else {
 		pFlightUsername = pUnixUsername;
-		pam_syslog(pamh, LOG_DEBUG, "username mapping data not found");
+		if (flightargs.debug) {
+			pam_syslog(pamh, LOG_DEBUG, "username mapping data not found");
+		}
 	}
 	
-	pUrl = getArg("url", argc, argv);
-	if (!pUrl) {
-		pam_syslog(pamh, LOG_CRIT, "pam_flight: `url` argument not given");
-		return PAM_SERVICE_ERR;
-	}
-
 	ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
 	if (ret != PAM_SUCCESS) {
 		if (ret != PAM_CONV_AGAIN) {
@@ -281,10 +307,10 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	 * which local users exist.
 	 */
 	if (pam_modutil_getpwnam(pamh, pUnixUsername) == NULL) {
-		pam_syslog(pamh, LOG_DEBUG, "user unknown [%s]", pUnixUsername);
+		pam_syslog(pamh, LOG_NOTICE, "user unknown [%s] aborting", pUnixUsername);
 		return PAM_USER_UNKNOWN;
 	}
 
-	ret = authenticate_user(pamh, pUrl, pFlightUsername, pPassword);
+	ret = authenticate_user(pamh, flightargs, pFlightUsername, pPassword);
 	return ret;
 }
