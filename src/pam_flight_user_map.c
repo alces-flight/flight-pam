@@ -171,7 +171,7 @@ int pam_sm_authenticate(pam_handle_t *pamh, int flags,
   }
 
   SYSLOG_DEBUG(pamh, LOG_DEBUG, "User not found in the list.\n");
-  pam_err= PAM_SUCCESS;
+  pam_err= PAM_PERM_DENIED;
   goto ret;
 
 syntax_error:
