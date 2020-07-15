@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <syslog.h>
+#include <errno.h>
 
 #include <security/pam_modules.h>
 #include <security/pam_modutil.h>
@@ -38,15 +39,19 @@ struct flight_args {
 	const char *url;
         int debug;
 	int permit_non_mapped_users;
+	long minuid;
 };
 
 static int
 parse_args(pam_handle_t *pamh, struct flight_args *flightargs,
            int argc, const char **argv)
 {
+    char *endptr;
+    long val;
     flightargs->url = NULL;
     flightargs->debug = 0;
     flightargs->permit_non_mapped_users = 1;
+    flightargs->minuid = 1000;
 
     int i;
     for (i=0; i<argc; ++i) {
@@ -67,6 +72,26 @@ parse_args(pam_handle_t *pamh, struct flight_args *flightargs,
           } else {
             flightargs->permit_non_mapped_users = 0;
           }
+          continue;
+        }
+        str = str_skip_icase_prefix(argv[i], "minuid=");
+        if (str != NULL) {
+            errno = 0;
+            val = strtol(str, &endptr, 10);
+            if ((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN))
+                    || (errno != 0 && val == 0)) {
+                pam_syslog(pamh, LOG_ERR, "invalid value for minuid=%s", str);
+                return 0;
+            }
+            if (endptr == str) {
+               pam_syslog(pamh, LOG_ERR, "invalid value for minuid=%s", str);
+               return 0;
+            }
+            if (val < 1) {
+               pam_syslog(pamh, LOG_ERR, "invalid value for minuid=%s", str);
+               return 0;
+            }
+            flightargs->minuid = val;
           continue;
         }
         pam_syslog(pamh, LOG_ERR, "unrecognized option [%s]", argv[i]);
@@ -256,6 +281,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	const char* pPassword = NULL;
 	const void *pUserMap = NULL;
 	const char *pFlightUsername = NULL;
+	struct passwd *user;
 
 	memset(&flightargs, '\0', sizeof(flightargs));
 	if (!parse_args(pamh, &flightargs, argc, argv)) {
@@ -276,6 +302,22 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		return ret;
 	}
 
+	ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
+	if (ret != PAM_SUCCESS) {
+		if (ret != PAM_CONV_AGAIN) {
+			pam_syslog(pamh, LOG_CRIT,
+			    "auth could not identify password for [%s]", pUnixUsername);
+		} else {
+			/*
+			 * It is safe to resume this function so we translate this
+			 * retval to the value that indicates we're happy to resume.
+			 */
+			ret = PAM_INCOMPLETE;
+		}
+		pUnixUsername = NULL;
+		return ret;
+	}
+
 	ret = pam_get_data(pamh, "pam_flight_user_map_data", &pUserMap);
 	if (ret == PAM_SUCCESS && pUserMap) {
 		pFlightUsername = (const char *)pUserMap;
@@ -293,22 +335,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		}
 		return PAM_PERM_DENIED;
 	}
-	
-	ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
-	if (ret != PAM_SUCCESS) {
-		if (ret != PAM_CONV_AGAIN) {
-			pam_syslog(pamh, LOG_CRIT,
-			    "auth could not identify password for [%s]", pUnixUsername);
-		} else {
-			/*
-			 * It is safe to resume this function so we translate this
-			 * retval to the value that indicates we're happy to resume.
-			 */
-			ret = PAM_INCOMPLETE;
-		}
-		pUnixUsername = NULL;
-		return ret;
-	}
 
 	/*
 	 * We don't want to allow spammed SSH attempts from bots to DDOS the
@@ -322,9 +348,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	 * much earlier.  This leaves us open to a timing attack to determine
 	 * which local users exist.
 	 */
-	if (pam_modutil_getpwnam(pamh, pUnixUsername) == NULL) {
+	if ((user = pam_modutil_getpwnam(pamh, pUnixUsername)) == NULL) {
 		pam_syslog(pamh, LOG_NOTICE, "user unknown [%s] aborting", pUnixUsername);
 		return PAM_USER_UNKNOWN;
+	}
+	if (user->pw_uid < flightargs.minuid) {
+		if (flightargs.debug) {
+			pam_syslog(pamh, LOG_DEBUG, "uid=%d below minuid=%ld",
+					user->pw_uid, flightargs.minuid);
+		}
+		return PAM_PERM_DENIED;
 	}
 
 	ret = authenticate_user(pamh, flightargs, pFlightUsername, pPassword);
