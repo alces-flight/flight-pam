@@ -331,7 +331,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		}
 	} else {
 		if (flightargs.debug) {
-			pam_syslog(pamh, LOG_DEBUG, "username not mapped; auth failure");
+			pam_syslog(pamh, LOG_DEBUG, "authentication failure; username not mapped");
 		}
 		return PAM_PERM_DENIED;
 	}
@@ -349,12 +349,12 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 	 * which local users exist.
 	 */
 	if ((user = pam_modutil_getpwnam(pamh, pUnixUsername)) == NULL) {
-		pam_syslog(pamh, LOG_NOTICE, "user unknown [%s] aborting", pUnixUsername);
+		pam_syslog(pamh, LOG_NOTICE, "authentication error; user unknown [%s]", pUnixUsername);
 		return PAM_USER_UNKNOWN;
 	}
 	if (user->pw_uid < flightargs.minuid) {
 		if (flightargs.debug) {
-			pam_syslog(pamh, LOG_DEBUG, "uid=%d below minuid=%ld",
+			pam_syslog(pamh, LOG_DEBUG, "authentication failure; uid=%d below minuid=%ld",
 					user->pw_uid, flightargs.minuid);
 		}
 		return PAM_PERM_DENIED;
