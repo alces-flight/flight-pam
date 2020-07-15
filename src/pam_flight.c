@@ -352,6 +352,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
         pam_syslog(pamh, LOG_NOTICE, "authentication error; user unknown [%s]", pUnixUsername);
         return PAM_USER_UNKNOWN;
     }
+    if (user->pw_uid == 0) {
+        if (flightargs.debug) {
+            pam_syslog(pamh, LOG_DEBUG, "authentication failure; uid=%d not permitted",
+                    user->pw_uid);
+        }
+        return PAM_PERM_DENIED;
+    }
     if (user->pw_uid < flightargs.minuid) {
         if (flightargs.debug) {
             pam_syslog(pamh, LOG_DEBUG, "authentication failure; uid=%d below minuid=%ld",
