@@ -41,6 +41,42 @@ void jsonEscapeString(char* dst, const char* src) {
 }
 
 /*
+ * Return JSON string containing Flight SSO credentials or NULL.
+ *
+ * The caller needs to free the returned pointer.
+ */
+char* buildCredentials(const char* username, const char* password) {
+	char* escapedUsername;
+	char* escapedPassword;
+	char* credentials;
+	int credentialsLen;
+
+	escapedUsername = malloc(strlen(username) * 2);
+	if (escapedUsername == NULL) {
+		return NULL;
+	}
+	jsonEscapeString(escapedUsername, username);
+
+	escapedPassword = malloc(strlen(password) * 2);
+	if (escapedPassword == NULL) {
+		free(escapedUsername);
+		return NULL;
+	}
+	jsonEscapeString(escapedPassword, password);
+
+	credentialsLen = strlen(escapedUsername) + strlen(escapedPassword) + 42;
+	credentials = malloc(credentialsLen);
+	if (credentials == NULL) {
+		free(escapedUsername);
+		free(escapedPassword);
+		return NULL;
+	}
+	sprintf(credentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}",
+			escapedUsername, escapedPassword);
+	return credentials;
+}
+
+/*
  * Makes getting arguments easier. Accepted arguments are of the form: name=value
  *
  * @param pName- name of the argument to get
@@ -93,9 +129,7 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 	CURL* pCurl = curl_easy_init();
 	int curlResponse = -1;
 	int authStatus = PAM_AUTH_ERR;
-	char* pEscapedUsername;
-	char* pEscapedPassword;
-	char* pCredentials = NULL;
+	char* pCredentials;
 
 	if (!pCurl) {
 		pam_syslog(pamh, LOG_ERR, "error initialising curl");
@@ -109,36 +143,13 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 		return PAM_BUF_ERR;
 	}
 
-	pEscapedUsername = malloc(strlen(pUsername) * 2);
-	if (pEscapedUsername == NULL) {
-		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate pEscapedUsername");
-		curl_easy_cleanup(pCurl);
-		free(httpResponse);
-		return PAM_BUF_ERR;
-	}
-	jsonEscapeString(pEscapedUsername, pUsername);
-
-	pEscapedPassword = malloc(strlen(pPassword) * 2);
-	if (pEscapedPassword == NULL) {
-		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate pEscapedPassword");
-		curl_easy_cleanup(pCurl);
-		free(httpResponse);
-		free(pEscapedUsername);
-		return PAM_BUF_ERR;
-	}
-	jsonEscapeString(pEscapedPassword, pPassword);
-
-	int len = strlen(pEscapedUsername) + strlen(pEscapedPassword) + 42;
-	pCredentials = malloc(len);
+	pCredentials = buildCredentials(pUsername, pPassword);
 	if (pCredentials == NULL) {
-		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot allocate pCredentials");
+		pam_syslog(pamh, LOG_CRIT, "pam_flight: cannot build credentials");
 		curl_easy_cleanup(pCurl);
 		free(httpResponse);
-		free(pEscapedUsername);
-		free(pEscapedPassword);
-		return PAM_BUF_ERR;
+		return PAM_AUTH_ERR;
 	}
-	sprintf(pCredentials, "{\"account\":{\"username\":\"%s\",\"password\":\"%s\"}}", pEscapedUsername, pEscapedPassword);
 
 	curl_easy_setopt(pCurl, CURLOPT_URL, pUrl);
 	curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeFn);
@@ -188,8 +199,6 @@ static int authenticate_user(pam_handle_t *pamh, const char* pUrl, const char* p
 
 	memset(pCredentials, '\0', strlen(pCredentials));
 	free(pCredentials);
-	free(pEscapedUsername);
-	free(pEscapedPassword);
 	curl_easy_cleanup(pCurl);
 	curl_slist_free_all(pHeaders);
 	free(httpResponse);
