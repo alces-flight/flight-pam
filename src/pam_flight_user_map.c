@@ -45,7 +45,7 @@ and usually end up in /var/log/secure file.
 #define SYSLOG_DEBUG if (mapargs.debug) pam_syslog
 
 const char *
-str_skip_icase_prefix_len(const char *str, const char *prefix)
+str_skip_icase_prefix(const char *str, const char *prefix)
 {
   size_t prefix_len = strlen(prefix);
   return strncasecmp(str, prefix, prefix_len) ? NULL : str + prefix_len;
@@ -73,7 +73,7 @@ parse_args(pam_handle_t *pamh, struct flight_user_map_args *mapargs,
             mapargs->debug = 1;
             continue;
         }
-        str = str_skip_icase_prefix_len(argv[i], mapfile_prefix);
+        str = str_skip_icase_prefix(argv[i], mapfile_prefix);
         if (str != NULL) {
           mapargs->filename = str;
           continue;
