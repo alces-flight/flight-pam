@@ -37,6 +37,7 @@ str_skip_icase_prefix(const char *str, const char *prefix)
 struct flight_args {
 	const char *url;
         int debug;
+	int permit_non_mapped_users;
 };
 
 static int
@@ -45,6 +46,7 @@ parse_args(pam_handle_t *pamh, struct flight_args *flightargs,
 {
     flightargs->url = NULL;
     flightargs->debug = 0;
+    flightargs->permit_non_mapped_users = 1;
 
     int i;
     for (i=0; i<argc; ++i) {
@@ -56,6 +58,15 @@ parse_args(pam_handle_t *pamh, struct flight_args *flightargs,
         str = str_skip_icase_prefix(argv[i], "url=");
         if (str != NULL) {
           flightargs->url = str;
+          continue;
+        }
+        str = str_skip_icase_prefix(argv[i], "permit_non_mapped_users=");
+        if (str != NULL) {
+          if ((strcmp(str, "1") == 0) || (strcasecmp(str, "true") == 0)) {
+            flightargs->permit_non_mapped_users = 1;
+          } else {
+            flightargs->permit_non_mapped_users = 0;
+          }
           continue;
         }
         pam_syslog(pamh, LOG_ERR, "unrecognized option [%s]", argv[i]);
@@ -271,11 +282,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 		if (flightargs.debug) {
 			pam_syslog(pamh, LOG_DEBUG, "username mapped from=%s to=%s", pUnixUsername, pFlightUsername);
 		}
-	} else {
+	} else if (flightargs.permit_non_mapped_users) {
 		pFlightUsername = pUnixUsername;
 		if (flightargs.debug) {
-			pam_syslog(pamh, LOG_DEBUG, "username mapping data not found");
+			pam_syslog(pamh, LOG_DEBUG, "username not mapped; using username=%s", pFlightUsername);
 		}
+	} else {
+		if (flightargs.debug) {
+			pam_syslog(pamh, LOG_DEBUG, "username not mapped; auth failure");
+		}
+		return PAM_PERM_DENIED;
 	}
 	
 	ret = pam_get_authtok(pamh, PAM_AUTHTOK, &pPassword , "Flight Password: ");
