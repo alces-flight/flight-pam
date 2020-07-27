@@ -57,7 +57,7 @@ the following line to the desired location.  We recommend adding it directly
 above the `pam_unix.so` line.
 
 ```
-auth        include       /opt/flight/etc/pam.d/flight
+auth        include       /opt/flight/etc/plugin/pam.d/flight
 ```
 
 If `flight-pam` has been installed from source, you will have to adjust the
